@@ -1,26 +1,26 @@
 # WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations
-[[中文版]](README_zh.md)
 
-This repository contains the code associated with the paper [WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://arxiv.org/abs/2403.01774). In this work, we formulate the task of attributed query-focused summarization (AQFS) and present WebCiteS, a Chinese dataset featuring 7k human-annotated summaries with citations. WebCiteS derives from real-world user queries and web search results, offering a valuable resource for model training and evaluation. We adopt comprehensive evaluation metrics on summarization utility and attribution and develop an cost-effective automatic evaluator based on open-source models for scalable and robust evaluation. Please refer to the paper for more details.
+本项目提供了论文[WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://arxiv.org/abs/2403.01774)的代码实现。在这个工作中，我们形式化了AQFS任务并提出了WebCiteS数据集。WebCiteS来源于真实的用户查询和网络搜索数据，包含7k条人工参与标注的引证式摘要。我们针对摘要质量和结果的可归因性（attribution）进行了全面评估，同时还基于开源模型构建了一个高效的自动评估器。请参阅论文来获取更多细节。
 
-## Contents
-- [Setup](#setup)
-- [Prepare the Evaluator](#prepare-the-evaluator)
-- [Experiments on the AQFS task](#experiments-on-the-aqfs-task)
 
-## Setup
-Clone the repository and navigate to the root directory.
+## 目录
+- [设置](#setup)
+- [准备评估器](#prepare-the-evaluator)
+- [进行AQFS任务的实验](#experiments-on-the-aqfs-task)
+
+## 设置
+首先，克隆本仓库并进入根目录。
 ```bash
 git clone https://github.com/HarlynDN/WebCiteS.git
 cd WebCiteS
 ```
-### Intall the requirements
+### 配置环境
 ```bash
 pip install -r requirements.txt
 ```
 
-### Data preparation
-Run the following command to download and preprocess the dataset.
+### 准备数据
+运行下面的命令来下载并预处理数据集。
 ```bash
 wget https://huggingface.co/datasets/HarlynDN/WebCiteS/resolve/main/data.tar
 tar -xvf data.tar
@@ -32,10 +32,11 @@ python prepare_data.py --raw_file webcites.json
 cd ..
 ```
 
-## Prepare the Evaluator
+## 准备评估器
 
-### Train the claim-split model
-The claim-split model receives a sentence and generates a list of its sub-claims. Here we fine-tune the `google/mt5-large` model on this task.
+### 训练观点分解模型
+输入一句话，观点分解模型会生成其所包含的所有子观点。下面的命令将会微调`google/mt5-large`模型来得到观点分解模型。
+
 ```bash
 cd src
 NUM_GPUs=8
@@ -61,9 +62,9 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_GPUs claimsplit/main.py \
     --predict_with_generate 
 ```
 
+### 评估观点分解模型的性能
 
-### Evaluate the claim-split model
-We use an NLI model to evaluate the redundancy, correctness, and completeness of the generated sub-claims against their source sentences. Here we use the `alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli` model as the NLI model.
+我们使用一个NLI模型来评估生成的子观点的冗余性、正确性和完整性。在本工作中，我们使用了`alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli`这一NLI模型。
 
 ```bash
 cd src
@@ -72,10 +73,14 @@ python claimsplit/eval.py \
     --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
     --batch_size 256
 ```
-If you are hitting OOM, try to reduce `batch_size`.
+如果遇到OOM错误，尝试减小`batch_size`。
 
-### Evaluate the whole evaluator
-We evaluate the performance of the evaluator consisting of a claim-split model and an NLI model on the test set of WebCiteS.
+
+### 评估完整评估器的性能
+
+完整的评估器包含一个观点分解模型和一个NLI模型，我们在WebCiteS的测试集上评估整个评估器的性能。
+
+
 ```bash
 cd src
 python aqfs/eval_evaluator.py \
@@ -85,13 +90,14 @@ python aqfs/eval_evaluator.py \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ``` 
-If you are hitting OOM, try to reduce `nli_batch_size` and `claimsplit_batch_size`.
 
-## Experiments on the AQFS task
+如果遇到OOM错误，尝试减小`nli_batch_size`和`claimsplit_batch_size`。
 
-### Supervised fine-tuning
-We use the [deepspeed library](https://github.com/microsoft/DeepSpeed) for LLM fine-tuning. The configuration file is `src/deepspeed.json`. 
-Here is an example of fine-tuning the `THUDM/chatglm3` model on this task.
+## 进行AQFS任务的实验
+
+### 有监督微调
+我们使用[deepspeed library](https://github.com/microsoft/DeepSpeed)进行LLM微调，相关的配置文件是`src/deepspeed.json`。
+下面是在这个任务上微调`THUDM/chatglm3`模型的示例。
 ```bash
 cd src
 deepspeed --num_gpus=8 aqfs/main.py \
@@ -115,10 +121,11 @@ deepspeed --num_gpus=8 aqfs/main.py \
     --learning_rate 2e-5 \
     --fp16
 ```
-We tested the above command on 8 A100-40GB GPUs. However, you might be able to run the code with less computational resources by enabling CPU offloading. See this [tutorial](https://huggingface.co/docs/transformers/v4.38.2/deepspeed) for more details.
 
-### Inference
-Here is an example of inference using the fine-tuned model.
+我们在8张A100-40GB的GPU上测试了上述命令。然而，通过启用CPU offloading，可能在更少的计算资源上运行代码。可以参阅[此教程](https://huggingface.co/docs/transformers/v4.38.2/deepspeed)获取更多信息。
+
+### 推理
+下面是使用微调模型进行推理的示例。
 ```bash
 cd src
 NUM_GPUs=8
@@ -136,13 +143,16 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_GPUs aqfs/main.py \
     --per_device_eval_batch_size 1 \
     --predict_with_generate 
 ```
-The above command executes the data-paralleled inference, where each GPU loads the entire weights of the model and processes a mini-batch of data. We aslo provide the script for model-parallel inference, where the weights of model are sharded across multiple GPUs. If you are hitting OOM when running the above command, try the following command. 
+
+上述命令执行了数据并行推理，其中每个GPU会加载模型的全部权重并处理一个小批量的数据。我们还提供了用于模型并行推理的脚本，其中模型的权重被切分到多个GPU上。如果在运行上述命令时遇到OOM错误，请尝试以下命令来使用模型并行推理。
+
 ```bash
 python aqfs/inference.py --{same arguments as above}
 ```
 
-#### Few-shot prompting
-Here is an example of few-shot prompting.
+#### 少样本提示
+下面是使用少样本提示（fewshot prompting）进行推理的示例。
+
 ```bash
 cd src
 NUM_GPUs=8
@@ -162,13 +172,17 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_GPUs aqfs/main.py \
     --per_device_eval_batch_size 1 \
     --predict_with_generate 
 ```
-There are two additional arguments `--use_chat_format` and `--exemplar_id` in the above command. Similarly, use `aqfs/inference.py` for model-parallel inference.
 
-#### Long-Context setting
-In the long-context setting, models are provided with full content of web pages to summarize. To adopt this setting, set `--data_dir` to `../data/aqfs_full_chunk256` or `../data/aqfs_full_chunk512`, and set `--max_source_length` to 7680.
+其中有两个额外参数`--use_chat_format`和`--exemplar_id`。同样可以使用`aqfs/inference.py`进行模型并行推理。
 
-### Evaluation
-We use the evaluator for automatic evaluation. Here is an example of evaluating the AQFS outputs.
+
+#### 长文本设置
+
+在长文本设置中，模型基于完整的网页内容来进行摘要。为了采用这种设置，需要将`--data_dir`设置为`../data/aqfs_full_chunk256`或`../data/aqfs_full_chunk512`，并将`--max_source_length`设置为7680。
+
+### 结果评估
+我们使用先前准备的评估器来进行自动评估。下面是对模型输出进行评估的示例。
+
 ```bash
 cd src
 python aqfs/eval.py \
@@ -178,10 +192,11 @@ python aqfs/eval.py \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ```
-If you are hitting OOM, try to reduce `nli_batch_size` and `claimsplit_batch_size`.
+如果遇到OOM错误，尝试减小`nli_batch_size`和`claimsplit_batch_size`。
 
-### ChatGPT outputs
-Run the folowing command to download outputs from GPT-3.5 and GPT-4.
+### ChatGPT 输出结果
+
+运行下面的命令来下载GPT-3.5和GPT-4的输出结果。
 ```bash
 wget https://huggingface.co/datasets/HarlynDN/WebCiteS/resolve/main/gpt_outputs.tar
 tar -xvf gpt_outputs.tar
