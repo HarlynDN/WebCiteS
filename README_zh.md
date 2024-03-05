@@ -4,9 +4,9 @@
 
 
 ## 目录
-- [设置](#setup)
-- [准备评估器](#prepare-the-evaluator)
-- [进行AQFS任务的实验](#experiments-on-the-aqfs-task)
+- [设置](#设置)
+- [准备评估器](#准备评估器)
+- [进行AQFS任务的实验](#进行aqfs任务的实验)
 
 ## 设置
 首先，克隆本仓库并进入根目录。
