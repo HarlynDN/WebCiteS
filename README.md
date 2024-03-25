@@ -28,7 +28,7 @@ echo "deleting tar file"
 rm data.tar
 cd data
 echo "preprocessing the data"
-python prepare_data.py --raw_file webcites.json
+python prepare_data.py --raw_data webcites.json
 cd ..
 ```
 
