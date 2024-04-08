@@ -13,6 +13,7 @@ from sacrebleu.metrics import BLEU
 
 from evaluator import Evaluator, remove_citations
 
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -40,6 +41,14 @@ parser.add_argument('--claimsplit_max_source_length', type=int, default=64,
 
 parser.add_argument('--claimsplit_max_target_length', type=int, default=128,
                     help='max length for claim-split generations')
+
+parser.add_argument('--citation_mask', choices=['predict', 'default'], default='predict',
+                    help='automatically predict citation mask or simply assign `citation_mask` to 1 for all sentences.')
+
+parser.add_argument('--citation_type', choices=['direct', 'nearest'], default='nearest',
+                    help='How to find the citations for a sentence. '
+                    'direct: only look at citations directly embedded within the sentence'
+                    'nearest: if the sentence does not have direct citations, will also look for the nearest set of citations from the following sentences.')
                     
 parser.add_argument('--output_dir', type=str, default=None,
                     help='The directory to save the results, will default to the same directory as `pred_file` if not provided.')
@@ -171,6 +180,8 @@ def run_evaluation():
                                                     summary = all_summaries, 
                                                     docs = all_docs, 
                                                     query = all_queries,
+                                                    predict_citation_mask=(args.citation_mask=='predict'),
+                                                    citation_pred_key='nearest_citations' if args.citation_type=='nearest' else 'citations',
                                                     claimsplit_max_source_length=args.claimsplit_max_source_length,
                                                     claimsplit_max_target_length=args.claimsplit_max_target_length,
                                                     claimsplit_batch_size=args.claimsplit_batch_size,

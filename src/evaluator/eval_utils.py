@@ -55,8 +55,10 @@ def longest_common_substring(str1, str2) -> str:
                 max_len, end_idx = dp[i][j], i - 1
     return str1[end_idx - max_len + 1:end_idx + 1]
 
+def detect_chinese(text):
+    return re.search("[\u4e00-\u9FFF]", text) is not None
 
-def parse_text_with_citations(text: str, lan='chinese') -> List[Dict]:
+def parse_text_with_citations(text: str) -> List[Dict]:
     """
     Input: a piece of text embedded with in-line citations
     Return: a list of dict mapping each `sentence` to its `citations`; if `citations` of a sentence is empty, 
@@ -71,9 +73,7 @@ def parse_text_with_citations(text: str, lan='chinese') -> List[Dict]:
     if not text:
         return []
     # segment sentences
-    if lan != 'chinese':
-        sentences = sent_tokenize(text, language=lan)
-    else:
+    elif detect_chinese(text):
         segments = [sen for sen in re.split('(?<=[。；！？;!?\n])', remove_citations(text))] 
         sentences = []
         for seg in segments:
@@ -81,14 +81,19 @@ def parse_text_with_citations(text: str, lan='chinese') -> List[Dict]:
                 sentences.append(seg)
             elif len(sentences) > 0: # if seg is a punctuation, append it to the last sentence
                 sentences[-1] += seg
+    else:
+        sentences = sent_tokenize(remove_citations(text))
 
-    sen_offsets = []
+    sen_offsets = [] # find the starting offset of each sentence in the original text
     for sen in sentences:
         if sen[:-1] in text: # sentence without punctuation, most of the time
-            sen_offsets.append(text.find(sen[:-1]))
+            # there might be multiple matched offsets if the same sentence is repeated
+            offsets = [m.start() for m in re.finditer(re.escape(sen[:-1]), text) if sen_offsets==[] or m.start() > sen_offsets[-1]] 
         else: # if citations are embedded in the middle of a sentence, causing the sentences stripped of citations not to match the original sentences
             lcs = longest_common_substring(sen, text)
-            sen_offsets.append(text.find(lcs))
+            offsets = [m.start() for m in re.finditer(re.escape(lcs), text) if sen_offsets==[] or m.start() > sen_offsets[-1]]
+
+        sen_offsets.append(offsets[0]) # append the first matched offset which is not appeared before
 
     pattern = r'【([\d,，、 -]+)】|\[([\d,，、 -]+)\]' # 【citation numbers】or [citation numbers]
     citation_offsets = [(match.start(), match.end()) for match in re.finditer(pattern, text)]
