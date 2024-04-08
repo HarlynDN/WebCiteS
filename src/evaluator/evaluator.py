@@ -20,21 +20,22 @@ class Evaluator(nn.Module):
         claimsplit_model_path: str = None,
         nli_model_path: str = None,
         device_map: Optional[str] = 'cuda',
-        half_precision: bool = True
+        half_precision: bool = True,
     ):
         super().__init__()
+        self.nli_model_path = nli_model_path
+        self.claimsplit_model_path = claimsplit_model_path
+
         # load claim-split model
         if claimsplit_model_path is not None:
             config = AutoConfig.from_pretrained(claimsplit_model_path, trust_remote_code=True)
+            torch_dtype = torch.bfloat16 if half_precision and config.torch_dtype==torch.float32 else config.torch_dtype
             self.claimsplit_model = AutoModelForSeq2SeqLM.from_pretrained(
-                                            claimsplit_model_path, 
-                                            config=config, 
-                                            trust_remote_code=True,
-                                            device_map=device_map
-                                        )
+                claimsplit_model_path, config=config, torch_dtype=torch_dtype, trust_remote_code=True, device_map=device_map
+            )
+            self.claimsplit_model.eval()
             self.claimsplit_tokenizer = AutoTokenizer.from_pretrained(claimsplit_model_path, trust_remote_code=True)
-            if half_precision:
-                self.claimsplit_model = self.claimsplit_model.half()
+
         else:
             self.claimsplit_model = None
             self.claimsplit_tokenizer = None
@@ -43,25 +44,26 @@ class Evaluator(nn.Module):
         # load nli model
         if nli_model_path is not None:
             config = AutoConfig.from_pretrained(nli_model_path, trust_remote_code=True)
-            if config.model_type in ['t5', 'mt5']:
-                config.id2label = {0: 'entailment', 1: 'neutral', 2: 'contradiction'}
-                config.label2id = {'entailment': 0, 'neutral': 1, 'contradiction': 2}
+            torch_dtype = torch.bfloat16 if half_precision and config.torch_dtype==torch.float32 else config.torch_dtype
+
+            if config.model_type in ['t5', 'mt5']: # seq2seq model
+                if "mt5-large-finetuned-mnli-xtreme-xnli" in nli_model_path:
+                    config.id2label = {0: 'entailment', 1: 'neutral', 2: 'contradiction'}
+                    config.label2id = {'entailment': 0, 'neutral': 1, 'contradiction': 2}
+                elif "t5_xxl_true_nli_mixture" in nli_model_path:
+                    # this model does binary classification, and we set contradict label to -1 which will be never predicted
+                    config.id2label = {1: 'entailment', 0: 'neutral', -1: 'contradiction'}
+                    config.label2id = {'entailment': 1, 'neutral': 0, 'contradiction': -1}
                 self.nli_model = AutoModelForSeq2SeqLM.from_pretrained(
-                                                            nli_model_path, 
-                                                            config=config, 
-                                                            trust_remote_code=True,
-                                                            device_map=device_map
-                                                        )
-            else:
+                    nli_model_path, config=config, torch_dtype=torch_dtype, trust_remote_code=True, device_map=device_map
+                )
+            else:   # bert-like model
                 self.nli_model = AutoModelForSequenceClassification.from_pretrained(
-                                                                        nli_model_path, 
-                                                                        config=config, 
-                                                                        trust_remote_code=True,
-                                                                        device_map=device_map
-                                                                    )
+                    nli_model_path, config=config, torch_dtype=torch_dtype, trust_remote_code=True, device_map=device_map
+                 )
+            self.nli_model.eval()
             self.nli_tokenizer = AutoTokenizer.from_pretrained(nli_model_path, trust_remote_code=True)  
-            if half_precision:
-                self.nli_model = self.nli_model.half()
+
             for label in config.id2label.values():
                 if 'entailment' in label.lower():
                     self.entail_label = label
@@ -83,51 +85,61 @@ class Evaluator(nn.Module):
     def num_labels(self):
         return self.nli_model.config.num_labels 
 
-
-    def _prepare_nli_input(
-        self, 
+    
+    @torch.inference_mode()
+    def _predict_nli(
+        self,
         hypothesis: Union[str, List[str]], 
         premise: Union[str, List[str]],
         max_length: int = 512,
-        task_prefix = 'xnli: '
-    ):
+    ) -> List[int]:
         
         if isinstance(hypothesis, str):
             hypothesis = [hypothesis]
         if isinstance(premise, str):
             premise = [premise]
         assert len(hypothesis) == len(premise), f"the number of hypotheses is {len(hypothesis)} but the number of premises is {len(premise)}"
+
         if 'bert' in self.nli_model.config.model_type.lower(): # use hiddent state of cls_token to classify
             inputs = self.nli_tokenizer(
                 premise, hypothesis, padding='longest', truncation=True, max_length=max_length, return_tensors='pt'
-            )
-        elif self.nli_model.config.model_type in ['mt5', 't5']: # convert the nli task into seq2seq generation
-            prompt_template = task_prefix + "premise: {} hypothesis: {}"
+            ).to(self.nli_model.device)
+
+            logits = self.nli_model(**inputs).logits 
+            predictions = torch.argmax(logits, dim=-1).tolist()
+
+         # convert the nli task into seq2seq generation
+        elif "mt5-large-finetuned-mnli-xtreme-xnli" in self.nli_model_path:
+            # reference: https://huggingface.co/alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli/blob/main/README.md
+            prompt_template = "xnli: premise: {} hypothesis: {}"
             input_text = [prompt_template.format(p, h) for p, h in zip(premise, hypothesis)]
             inputs = self.nli_tokenizer(
                 input_text, padding='longest', truncation=True, max_length=max_length, return_tensors='pt'
-            )
-        return inputs
+            ).to(self.nli_model.device)
 
-    @torch.no_grad()
-    def _predict_nli(
-        self,
-        **inputs
-    ) -> List[int]:
-        if self.nli_model.config.model_type == 'mt5': 
             out = self.nli_model.generate(
                 **inputs, output_scores=True, max_new_tokens=3, return_dict_in_generate=True, num_beams=1
-            )
+            ) 
             # sanity check that our sequences are expected length (1 + start token + end token = 3)
             for i, seq in enumerate(out.sequences):
                 assert len(seq) == 3, f"generated sequence {i} not of expected length 3,  Actual length: {len(seq)}"
             predictions = [int(pred) for pred in self.nli_tokenizer.batch_decode(out.sequences, skip_special_tokens=True)]
-        else: # bert-like models
-            logits = self.nli_model(**inputs).logits 
-            predictions = torch.argmax(logits, dim=-1).tolist()
+        
+        elif "t5_xxl_true_nli_mixture" in self.nli_model_path:
+            # reference: https://github.com/google-research-datasets/Attributed-QA/blob/main/evaluation.py 
+            prompt_template = "premise: {} hypothesis: {}"
+            input_text = [prompt_template.format(p, h) for p, h in zip(premise, hypothesis)]
+            inputs = self.nli_tokenizer(
+                input_text, padding='longest', truncation=True, max_length=max_length, return_tensors='pt'
+            ).to(self.nli_model.device)
+            out = self.nli_model.generate(**inputs, max_new_tokens=3)
+            predictions = self.nli_tokenizer.batch_decode(out, skip_special_tokens=True)
+            predictions = [1 if pred=="1" else 0 for pred in predictions]
+        
         return predictions
-    
-    @torch.no_grad()
+
+        
+    @torch.inference_mode()
     def _split_claims(
         self,
         sentences: Union[str, List[str]],
@@ -292,11 +304,9 @@ class Evaluator(nn.Module):
             pbar.set_description(f'reducing claims')
         all_predictions = []
         for hypothesis_batch, premise_batch in zip(hypothesis_batches, premise_batches):
-            inputs = self._prepare_nli_input(
+            predictions = self._predict_nli(
                 hypothesis=hypothesis_batch, premise=premise_batch, max_length=max_length
-            ).to(self.nli_model.device)
-
-            predictions = self._predict_nli(**inputs)
+            )
             all_predictions.extend(predictions)
 
             if verbose:
@@ -412,10 +422,9 @@ class Evaluator(nn.Module):
             pbar.set_description(f'evaluating claimsplit predictions')
         all_nli_predictions = []
         for hypothesis_batch, premise_batch in zip(hypothesis_batches, premise_batches):
-            inputs = self._prepare_nli_input(
+            nli_preds = self._predict_nli(
                 hypothesis=hypothesis_batch, premise=premise_batch, max_length=max_seq_length
-            ).to(self.nli_model.device)
-            nli_preds = self._predict_nli(**inputs)
+            )
             all_nli_predictions.extend(nli_preds)
             if verbose:
                 pbar.update(1)
@@ -482,10 +491,9 @@ class Evaluator(nn.Module):
             pbar.set_description(f'computing {metric_key_prefix} claim score')
         all_nli_predictions = []
         for hypothesis_batch, premise_batch in zip(hypothesis_batches, premise_batches):
-            inputs = self._prepare_nli_input(
-                        hypothesis=hypothesis_batch, premise=premise_batch, max_length=max_seq_length
-                    ).to(self.nli_model.device)
-            nli_preds = self._predict_nli(**inputs)
+            nli_preds = self._predict_nli(
+                hypothesis=hypothesis_batch, premise=premise_batch, max_length=max_seq_length
+            )
             all_nli_predictions.extend(nli_preds)
 
             if verbose:
@@ -509,6 +517,7 @@ class Evaluator(nn.Module):
         self,
         predictions: Union[str, List[str]],
         references: Union[str, List[str]],
+        claimsplit: bool = True,
         claimsplit_max_source_length=64,
         claimsplit_max_target_length=128,
         claimsplit_batch_size=128,
@@ -529,13 +538,14 @@ class Evaluator(nn.Module):
         if isinstance(references[0], list):
             references = [' '.join(ref) for ref in references] # if multiple references for one prediction, concatenate them
 
-        # claimsplit all predictions and references
-        assert self.claimsplit_model is not None and self.claimsplit_tokenizer is not None, "claimsplit model is not loaded"
+        if claimsplit and self.claimsplit_model is None:
+            claimsplit = False
+            logger.warning("claimsplit model is not loaded, will not split claims")
 
-        # claimsplit
+        # do batch parsing (and claimplit) for all predictions and references together
         all_parsings = self._parse_summary(
                         predictions + references, 
-                        claimsplit=True, 
+                        claimsplit=claimsplit, 
                         batch_size=claimsplit_batch_size,
                         max_source_length=claimsplit_max_source_length,
                         max_target_length=claimsplit_max_target_length,
@@ -544,11 +554,17 @@ class Evaluator(nn.Module):
                     )
         all_preds_claims = [] # [[ claims for prediction1 ], [ claims for prediction2 ], ...]
         for parsing in all_parsings[:len(predictions)]:
-            all_preds_claims.append([cl for item in parsing for cl in item['claims']])
+            if claimsplit:
+                all_preds_claims.append([cl for item in parsing for cl in item['claims']])
+            else:
+                all_preds_claims.append([item['sentence'] for item in parsing])
 
         all_refs_claims = [] # [[ claims for reference1 ], [ claims for reference2 ], ...]
         for parsing in all_parsings[len(predictions):]:
-            all_refs_claims.append([cl for item in parsing for cl in item['claims']])
+            if claimsplit:
+                all_refs_claims.append([cl for item in parsing for cl in item['claims']])
+            else:
+                all_refs_claims.append([item['sentence'] for item in parsing])
 
         scores = {}
         scores['claim_precision'] = self._compute_claim_score(
@@ -716,10 +732,9 @@ class Evaluator(nn.Module):
             pbar = tqdm(total=len(hypothesis_batches))
             pbar.set_description(f'predicting citations')
         for hypothesis, premise in zip(hypothesis_batches, premise_batches):
-            inputs = self._prepare_nli_input(
+            predictions = self._predict_nli(
                 hypothesis=hypothesis, premise=premise, max_length=max_seq_length
-            ).to(self.nli_model.device)
-            predictions = self._predict_nli(**inputs)
+            )
             all_predictions.extend(predictions)
             if verbose:
                 pbar.update(1)
@@ -910,7 +925,7 @@ class Evaluator(nn.Module):
             citation_ref_key:
                 the key to store the citations predicted by the evaluator for each sentence in `summary_parsing`
             claimsplit:
-                whether to split each sentence into a list of claims using the claimsplit model
+                whether to split each sentence into a list of claims using the claimsplit model, will be set to `False` if `claimsplit_model` is not loaded
             claimsplit_max_source_length: 
                 max sequence length of the input text for claimsplit, sequence longer than this will be truncated
             claimsplit_max_target_length: 
@@ -926,7 +941,6 @@ class Evaluator(nn.Module):
                 otherwise, will return the sumamry parsing as well
             verbose:
                 whether to show progress bar
-
         """
         # input check
         squeeze = False
@@ -939,6 +953,10 @@ class Evaluator(nn.Module):
         assert len(summary) == len(docs)
         if query is not None:
             assert len(summary) == len(query)
+
+        if claimsplit and self.claimsplit_model is None:
+            claimsplit = False
+            logger.warning("claimsplit model is not loaded, will not split claims")
 
         all_parsings = self._parse_summary(
                         summary=summary,

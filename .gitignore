@@ -160,8 +160,8 @@ cython_debug/
 #.idea/
 
 .vscode/
-outputs/
 data/
+outputs/
 gpt_outputs/
 *.pdf
 *.tar
