@@ -19,7 +19,26 @@ class DataTrainingArguments:
     """
     data_dir: Optional[str] = field(
         default=None, 
-        metadata={"help": "The directory of dataset, will be passed to `datasets.load_dataset`"}
+        metadata={"help": "The directory of dataset, will be passed to `datasets.load_dataset`."
+                  "If not provided, will look for `train_file`, `validation_file`, `test_file` instead."}
+    )
+    train_file: Optional[str] = field(
+        default=None, 
+        metadata={"help": "The input training data file (a jsonlines or csv file)."}
+    )
+    validation_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "An optional input evaluation data file to evaluate the metrics (rouge) on (a jsonlines or csv file)."
+            )
+        },
+    )
+    test_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "An optional input test data file to evaluate the metrics (rouge) on (a jsonlines or csv file)."
+        },
     )
     source_column: Optional[str] = field(
         default=None, 

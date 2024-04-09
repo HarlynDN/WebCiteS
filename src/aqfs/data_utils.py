@@ -14,7 +14,19 @@ short_instruction = "给定一个问题和多条搜索结果，请根据搜索�
 回答需要简洁清晰、逻辑连贯并严格依照搜索结果。你需要将不同的观点分别总结成多句话，将相似的观点总结成一句话并同时标注多个来源。"
 
 def load_dataset(data_args):
-    dataset =  datasets.load_dataset(data_args.data_dir)
+    if data_args.data_dir is not None:
+        dataset =  datasets.load_dataset(data_args.data_dir)
+    else:
+        assert data_args.train_file is not None or data_args.validation_file is not None or data_args.test_file is not None, \
+            "You need to provide at least one of `train_file`, `validation_file`, `test_file`"
+        data_dict = {}
+        if data_args.train_file is not None:
+            data_dict['train'] = datasets.load_dataset(data_args.train_file.split('.')[-1], data_files=data_args.train_file)
+        if data_args.validation_file is not None:
+            data_dict['validation'] = datasets.load_dataset(data_args.validation_file.split('.')[-1], data_files=data_args.validation_file)
+        if data_args.test_file is not None:
+            data_dict['test'] = datasets.load_dataset(data_args.test_file.split('.')[-1], data_files=data_args.test_file)
+        dataset = datasets.DatasetDict(data_dict)
     return dataset
 
 def preprocess_causal(examples: Dict, tokenizer, data_args, fewshot_exemplar=None):
