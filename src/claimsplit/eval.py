@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 parser = ArgumentParser()
-parser.add_argument('--pred_file', type=str, default=None,
+parser.add_argument('--f', type=str, default=None,
                     help='The path of generated predictions.')
 
-parser.add_argument('--nli_model_path', type=str, default="../../../LLMs/mt5-large-finetuned-mnli-xtreme-xnli",
+parser.add_argument('--nli_model', type=str, default=None,
                     help='The path to the nli model for evaluation.')
 
 parser.add_argument('--batch_size', type=int, default=256,
@@ -28,7 +28,7 @@ parser.add_argument('--max_seq_length', type=int, default=512,
                     help='maximum length for (premise, hypothesis) pairs')
 
 parser.add_argument('--output_dir', type=str, default=None,
-                    help='The directory to save the results, default to the directory of `pred_file`.')
+                    help='The directory to save the results, default to the directory of `args.f`.')
 
 parser.add_argument('--device_map', type=str, default='cuda',
                     help='if set to `cuda`, will do single gpu inference; if set to `auto`, will shard model across multiple gpus and do pipeline inference.')
@@ -42,14 +42,14 @@ def run_evaluation():
     args = parser.parse_args()
     logger.info(f'Arguments: {args}')
     if args.output_dir is None:
-        args.output_dir = os.path.dirname(args.pred_file)
+        args.output_dir = os.path.dirname(args.f)
         logger.info(f'`--output_dir` is not provided. Results will be saved at {args.output_dir}')
 
     # load generation file
-    with open(args.pred_file, 'r') as f:
+    with open(args.f, 'r') as f:
         all_predictions = json.load(f)
 
-    evaluator = Evaluator(nli_model_path=args.nli_model_path, device_map=args.device_map)
+    evaluator = Evaluator(nli_model_path=args.nli_model, device_map=args.device_map)
 
     all_scores = {}
     # evaluate prediction
@@ -70,7 +70,7 @@ def run_evaluation():
     table = tabulate.tabulate(table, headers=headers, tablefmt='grid')
     # print and save
     print(table)
-    output_name = 'metrics_' + os.path.basename(args.pred_file).split('.')[0] + '.txt'
+    output_name = 'metrics_' + os.path.basename(args.f).split('.')[0] + '.txt'
     with open(os.path.join(args.output_dir, output_name), 'w') as f:
         f.write(table)
     logger.info(f'Metrics saved at {os.path.join(args.output_dir, output_name)}')

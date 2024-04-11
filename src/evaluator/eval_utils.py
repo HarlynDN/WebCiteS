@@ -55,8 +55,11 @@ def longest_common_substring(str1, str2) -> str:
                 max_len, end_idx = dp[i][j], i - 1
     return str1[end_idx - max_len + 1:end_idx + 1]
 
-def detect_chinese(text):
-    return re.search("[\u4e00-\u9FFF]", text) is not None
+def is_chinese(text):
+    """
+    If more than half of the text is Chinese characters, return True.
+    """
+    return len(re.findall("[\u4e00-\u9FFF]", text)) > len(text) / 2
 
 def parse_text_with_citations(text: str) -> List[Dict]:
     """
@@ -73,7 +76,7 @@ def parse_text_with_citations(text: str) -> List[Dict]:
     if not text:
         return []
     # segment sentences
-    elif detect_chinese(text):
+    elif is_chinese(text):
         segments = [sen for sen in re.split('(?<=[。；！？;!?\n])', remove_citations(text))] 
         sentences = []
         for seg in segments:

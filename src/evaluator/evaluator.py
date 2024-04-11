@@ -10,7 +10,7 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoModelForSequenceClassification
 )
-from .eval_utils import parse_text_with_citations
+from .eval_utils import parse_text_with_citations, is_chinese
 
 logger = logging.getLogger(__name__)
 
@@ -178,9 +178,9 @@ class Evaluator(nn.Module):
 
         return all_predictions if not isinstance(sentences, str) else all_predictions[0]
 
-    def _parse_summary(
+    def _parse_text(
         self, 
-        summary: Union[str, List[str]],
+        text: Union[str, List[str]],
         claimsplit: bool = False,
         max_source_length=64,
         max_target_length=128,
@@ -188,13 +188,13 @@ class Evaluator(nn.Module):
         verbose=False
     ) -> Union[List[Dict], List[List[Dict]]]:
         """
-        Given a (list of) summary, parse it (them) into mappings of `sentence` to their `citations`; 
+        Given a (list of) generation, parse it (them) into mappings of `sentence` to their `citations`; 
         
         If `claimsplit` is True, will also split each sentence into a list of claims.
 
         Args:
-            summary: 
-                the summary text with citations or a list of summaries with citations
+            text: 
+                the generation text with citations or a list of generations with citations
             claimsplit:
                 whether to split each sentence into a list of claims using the claimsplit model.
                 If `self.claimsplit_model` is None, will take the whole sentence as its claim.
@@ -207,28 +207,30 @@ class Evaluator(nn.Module):
             verbose:
                 whether to show progress bar
         Return:
-            if `summary` is a single summary, will return a single `summary_parsing`; if `summary` is a list of summarries, will return a list of `summary_parsing`. 
+            if `text` is a single generation, will return a single `text_parsing`; if `text` is a list of generations, will return a list of `text_parsing`. 
 
-            `summary_parsing` is a list of dict where each item is: 
+            `text_parsing` is a list of dict where each item is: 
                 {
                     'sentence': 
-                        a sentence in the summary,
+                        a sentence in the generation,
                     'citations': 
-                        the set of citations for the senstence present in the summary,
+                        the set of citations directly embedded within the senstence,
+                    'nearest_citations':   
+                        the nearest set of citations behind the sentence,
                     'claims': 
                         the list of claims for the sentence if `claimsplit` is True
                 }
         """
         squeeze = False
-        if isinstance(summary, str):
-            summary = [summary]
+        if isinstance(text, str):
+            text = [text]
             squeeze = True
-        all_summary_parsing = [parse_text_with_citations(item) for item in summary]
+        all_text_parsing = [parse_text_with_citations(item) for item in text]
         if not claimsplit:
-            return all_summary_parsing if not isinstance(summary, str) else all_summary_parsing[0]
+            return all_text_parsing if not isinstance(text, str) else all_text_parsing[0]
         # claim-split
-        all_summary_sen_nums = [len(item) for item in all_summary_parsing]
-        all_sentences = [item['sentence'] for parsing in all_summary_parsing for item in parsing]
+        all_text_sen_nums = [len(item) for item in all_text_parsing]
+        all_sentences = [item['sentence'] for parsing in all_text_parsing for item in parsing]
         if self.claimsplit_model is None: # if claimsplit model is not loaded, take the whole sentence as its claim
             all_claims = [[sen] for sen in all_sentences]
         all_claims = self._split_claims(
@@ -238,18 +240,18 @@ class Evaluator(nn.Module):
             batch_size=batch_size,
             verbose=verbose
         )
-        # split predictions for each summary
-        claims_for_all_summaries = [all_claims[i:i+l] for i, l in zip(np.cumsum([0]+all_summary_sen_nums)[:-1], all_summary_sen_nums)]
-        for idx, claims_for_summary in enumerate(claims_for_all_summaries):
-            summary_parsing = all_summary_parsing[idx]
-            if summary_parsing == []:
+        # split predictions for each generation
+        claims_for_all_texts = [all_claims[i:i+l] for i, l in zip(np.cumsum([0]+all_text_sen_nums)[:-1], all_text_sen_nums)]
+        for idx, claims_for_text in enumerate(claims_for_all_texts):
+            text_parsing = all_text_parsing[idx]
+            if text_parsing == []:
                 continue
-            for i, item in enumerate(summary_parsing):
-                item['claims'] = claims_for_summary[i]
-            all_summary_parsing[idx] = summary_parsing
+            for i, item in enumerate(text_parsing):
+                item['claims'] = claims_for_text[i]
+            all_text_parsing[idx] = text_parsing
         if squeeze:
-            all_summary_parsing = all_summary_parsing[0]
-        return all_summary_parsing
+            all_text_parsing = all_text_parsing[0]
+        return all_text_parsing
 
     def _reduce_claims(
         self, 
@@ -452,33 +454,33 @@ class Evaluator(nn.Module):
         }
         return scores
 
-    def _compute_claim_score(
+    def _compute_claim_nli(
         self,
         claims: Union[List[str], List[List[str]]],
-        summary: Union[str, List[str]],
+        reference: Union[str, List[str]],
         max_seq_length=512,
         batch_size=256,
         verbose=False,
         metric_key_prefix: str=''
     ):
         """
-        Compute the fraction of claims being entailed by the summary using the nli_model
+        Compute the fraction of claims being entailed by the reference text using the nli_model
         """
         squeeze = False
         if isinstance(claims[0], str):
             all_claims = [claims]
-            all_summaries = [summary]
+            all_references = [reference]
             squeeze = True
         else:
             all_claims = claims
-            all_summaries = summary
-        assert len(all_claims) == len(all_summaries)
+            all_references = reference
+        assert len(all_claims) == len(all_references)
         # prepare all <premise, hypothesis> pairs
         premises, hypotheses = [], []
         all_sample_nli_input_nums = []
-        for i, (claims, summary) in enumerate(zip(all_claims, all_summaries)):
+        for i, (claims, reference) in enumerate(zip(all_claims, all_references)):
             for claim in claims:
-                premises.append(summary)
+                premises.append(reference)
                 hypotheses.append(claim)
             all_sample_nli_input_nums.append(len(claims))
         
@@ -501,7 +503,7 @@ class Evaluator(nn.Module):
         all_nli_predictions = [self.id2label[pred]==self.entail_label for pred in all_nli_predictions]
 
         all_scores = []
-        for i, (claims, summary) in enumerate(zip(all_claims, all_summaries)):
+        for i, (claims, reference) in enumerate(zip(all_claims, all_references)):
             # get nli_predictions_for_sample for each sample using np.cumsum
             nli_predictions_for_sample = all_nli_predictions[np.cumsum([0]+all_sample_nli_input_nums)[:-1][i]:np.cumsum([0]+all_sample_nli_input_nums)[1:][i]]
             assert len(nli_predictions_for_sample) == len(claims)
@@ -513,7 +515,7 @@ class Evaluator(nn.Module):
 
         return all_scores
            
-    def evaluate_summary(
+    def evaluate_claims(
         self,
         predictions: Union[str, List[str]],
         references: Union[str, List[str]],
@@ -527,7 +529,7 @@ class Evaluator(nn.Module):
         **kwargs
     ):
         """
-        Evaluate summarization utility by computing claim precision and claim recall
+        Evaluate text generation by computing claim precision and claim recall
         """
         squeeze = False
         if isinstance(predictions, str):
@@ -543,7 +545,7 @@ class Evaluator(nn.Module):
             logger.warning("claimsplit model is not loaded, will not split claims")
 
         # do batch parsing (and claimplit) for all predictions and references together
-        all_parsings = self._parse_summary(
+        all_parsings = self._parse_text(
                         predictions + references, 
                         claimsplit=claimsplit, 
                         batch_size=claimsplit_batch_size,
@@ -567,17 +569,17 @@ class Evaluator(nn.Module):
                 all_refs_claims.append([item['sentence'] for item in parsing])
 
         scores = {}
-        scores['claim_precision'] = self._compute_claim_score(
+        scores['claim_precision'] = self._compute_claim_nli(
             claims=all_preds_claims, 
-            summary=references, 
+            reference=references, 
             max_seq_length=nli_max_seq_length, 
             batch_size=nli_batch_size, 
             verbose=verbose,
             metric_key_prefix='claim_precision'
         )
-        scores['claim_recall'] = self._compute_claim_score(
+        scores['claim_recall'] = self._compute_claim_nli(
             claims=all_refs_claims, 
-            summary=predictions, 
+            reference=predictions, 
             max_seq_length=nli_max_seq_length, 
             batch_size=nli_batch_size, 
             verbose=verbose,
@@ -591,19 +593,22 @@ class Evaluator(nn.Module):
     def _get_task_prefix_for_citation_mask(
         self,
         query: str = None,
+        lang: str = 'en'
     ) -> str:
         """
         Return the task prefix for citation_mask prediction.
         """
+        Q = "查询词" if lang == 'zh' else "Query"
+        A = "回答" if lang == 'zh' else "Answer"
         if query is not None:
-            prefix = f"查询词：{query}，搜索结果摘要："
+            prefix = f"{Q}: {query}, {A}: "
         else:
-            prefix = "搜索结果摘要："
+            prefix = f"{A}: "
         return prefix
     
     def _predict_citation(
         self, 
-        summary_parsing: Union[List[Dict], List[List[Dict]]],
+        text_parsing: Union[List[Dict], List[List[Dict]]],
         docs: Union[List[str], List[List[str]]], 
         predict_citation_mask: bool = True,
         query: Union[str, List[str]] = None,
@@ -614,36 +619,36 @@ class Evaluator(nn.Module):
         verbose=False
     ) -> List[List[Dict]]:
         """
-        Given the summary_parsing and source docs, first predict the citation_mask for each sentence,
+        Given the text_parsing and source docs, first predict the citation_mask for each sentence,
 
         then predict the set of citations for each sentence. Both tasks are formulated as NLI task on pairs of <premise, hypothesis>.
 
         A doc is predicted as a citation of a sentence if:
-            1. the doc entails the sentence
-            2. the doc does not contradict the sentence and entails at least one of its claims
+            1. the doc entails the sentence (full support)
+            2. the doc does not contradict the sentence and entails at least one of its claims (partial support)
 
-        If 'claims' of sentences are not given in `summary_parsing`, will take the sentence itself as its claim.
+        If 'claims' of sentences are not given in `text_parsing`, will take the sentence itself as its claim.
         
         The citation index starts from 1, so the index of the first doc is 1, the index of the second doc is 2, and so on.
 
         Args:
-            summary_parsing: 
-                the parsing of a summary returned by `parse_summary`, or a list of parsings with respect to multiple summaries
+            text_parsing: 
+                the parsing of the generation returned by `self._parse_text`, or a list of parsings with respect to multiple generations
             docs: 
-                if 'summary_parsing' is the parsing of a single summary, `docs` should be a list of source docs;
-                elif 'summary_parsing' is a list of parsings of multiple summaries, `docs` should be a list of list of source docs.
+                if 'text_parsing' is the parsing of a single generation, `docs` should be a list of source docs;
+                elif 'text_parsing' is a list of parsings of multiple generations, `docs` should be a list of list of source docs.
             predict_citation_mask:
-                whether to predict the citation_mask for each sentence using the nli_model, will be ignored if `citation_mask` is given in `summary_parsing`.
-                if set to `True` and 'citation_mask' is not given in `summmary_parsing`, will predict the citation_mask for each sentence: citation_mask is 1 if a sentence needs citation, else 0.
-                if set to `False` and 'citation_mask' is not given in `summmary_parsing`, will assign citation_mask=1 to all sentences, indicating that all sentences need citation.
-            query:
+                whether to predict the citation_mask for each sentence using the nli_model, will be ignored if `citation_mask` is given in `text_parsing`.
+                if set to `True` and 'citation_mask' is not given in `text_parsing`, will predict the citation_mask for each sentence: citation_mask is 1 if a sentence needs citation, else 0.
+                if set to `False` and 'citation_mask' is not given in `text_parsing`, will assign citation_mask=1 to all sentences, indicating that all sentences need citation.
+            query (*optional*):
                 if provided, will be added into the prompt to improve the accuracy of citation_mask prediction if `predict_citation_mask` is True;
-                if 'summary_parsing' is the parsing of a single summary, `query` should be a single string;
-                elif 'summary_parsing' is a list of parsings of multiple summaries, `query` should be a list of strings.
+                if 'text_parsing' is the parsing of a single generation, `query` should be a single string;
+                elif 'text_parsing' is a list of parsings of multiple generations, `query` should be a list of strings.
             citation_pred_key:
-                the key to store the given (model-generated) citations for each sentence in `summary_parsing`
+                the key to store the given (model-generated) citations for each sentence in `text_parsing`
             citation_ref_key:
-                the key to store the citations predicted by the evaluator for each sentence in `summary_parsing`
+                the key to store the citations predicted by the evaluator for each sentence in `text_parsing`
             max_seq_length: 
                 max sequence length of the input text, sequence longer than this will be truncated
             batch_size: 
@@ -652,7 +657,7 @@ class Evaluator(nn.Module):
                 whether to show progress bar
 
         Return:
-            updated 'summary_parsing' with the following fields added:
+            updated 'text_parsing' with the following fields added:
 
                 'citation_mask': 1 if the sentence needs citation, else 0,
 
@@ -662,66 +667,71 @@ class Evaluator(nn.Module):
 
                 'claim2rels': the mapping of each claim to its relation with each doc. 
         """
-        all_hypotheses, all_premises = [], []
-        all_claim_nums = []
         # input check
         squeeze = False
-        if isinstance(summary_parsing[0], dict):
+        if isinstance(text_parsing[0], dict):
             assert isinstance(docs[0], str), "`docs` should be a list of source strings"
             if query is not None:
                 assert isinstance(query, str), "`query` should be a single string"
                 all_queries = [query]
             else:
                 all_queries = [ModuleNotFoundError]
-            all_summary_parsing = [summary_parsing]
+            all_text_parsing = [text_parsing]
             all_docs = [docs]
             squeeze = True
         else:
-            all_summary_parsing = summary_parsing
+            all_text_parsing = text_parsing
             all_docs = docs
             assert isinstance(docs[0], list), "`docs` should be a list of list of source strings"
-            assert len(summary_parsing) == len(docs)
+            assert len(text_parsing) == len(docs)
             if query is not None:
                 assert isinstance(query, list), "`query` should be a list of strings"
                 all_queries = query
-                assert len(summary_parsing) == len(all_queries)
+                assert len(text_parsing) == len(all_queries)
             else:
-                all_queries = [None]*len(all_summary_parsing)
+                all_queries = [None]*len(all_text_parsing)
             
+        # since both citation mask prediction and citation prediction are formulated as NLI task,
+        # we first prepare all <premise, hypothesis> pairs and then do batch nli inference all at once
+
+        all_hypotheses, all_premises = [], [] # (num_sample, num_pairs)
+        all_claim_nums = [] # (num_sample, num_sen, num_claims_for_each_sen)
+
         # prepare all <premise, hypothesis> pairs
-        for i, summary_parsing in enumerate(all_summary_parsing):
+        for i, text_parsing in enumerate(all_text_parsing):
             claim_nums_of_sens = []
-            for item in summary_parsing:
-                # we will add the sentence itself into `claims`, since we also need to predict the relation bewteen the sentence and the doc
-                if 'claims' not in item or len(item['claims']) <= 1:
+            for item in text_parsing:
+                if 'claims' not in item or len(item['claims']) <= 1: # if claims are not given, take the sentence itself as its claim
                     item['claims'] = [item['sentence'].strip()]
                 if item['claims'][-1].strip() != item['sentence'].strip():
+                    # we will add the sentence itself into `claims`, since we also need to predict the relation bewteen the sentence and the doc
                     item['claims'].append(item['sentence'].strip())
                 claim_nums_of_sens.append(len(item['claims']))
             all_claim_nums.append(claim_nums_of_sens)
 
-            sumamry_hypotheses, summary_premises = [], []
-            for item in summary_parsing:
+            sen_hypotheses, sen_premises = [], [] # collect hypotheses and premises for all sentences in a single generation sample
+            for item in text_parsing:
                 # first, predict wether each sentence needs citation
-                # a sentence does not need citation only of all of its claims are supported by other sentences with citations in the same summary
-                prefix_for_citation_mask = self._get_task_prefix_for_citation_mask(all_queries[i])
-                citation_mask_premise = ''.join([d['sentence'] for d in summary_parsing if d['sentence']!=item['sentence'] and d['citations']]) # concatenate all other sentences with non-empty citations as premise
+                # a sentence does not need citation only of all of its claims are supported by other sentences with citations in the same generation
+                lang = 'zh' if is_chinese(item['sentence']) else 'en'
+                prefix_for_citation_mask = self._get_task_prefix_for_citation_mask(all_queries[i], lang=lang)
+                citation_mask_premise = ''.join([d['sentence'] for d in text_parsing if d['sentence']!=item['sentence'] and d['citations']]) # concatenate all other sentences with non-empty citations as premise
                 citation_mask_premise = prefix_for_citation_mask + citation_mask_premise
                 for claim in item['claims']:
                     hypothesis = claim.strip()
-                    sumamry_hypotheses.append(hypothesis)
-                    summary_premises.append(citation_mask_premise)
-                    # second, predict the relation for each claim and document
+                    sen_hypotheses.append(hypothesis)
+                    sen_premises.append(citation_mask_premise)
+                    # second, predict if the document entails the claim
                     for doc in all_docs[i]:
                         doc_premise = doc.strip()
-                        sumamry_hypotheses.append(hypothesis)
-                        summary_premises.append(doc_premise)
+                        sen_hypotheses.append(hypothesis)
+                        sen_premises.append(doc_premise)
 
-            # gather all <premise, hypothesis> pairs
-            all_hypotheses.append(sumamry_hypotheses)
-            all_premises.append(summary_premises)
+            # gather all <premise, hypothesis> pairs for all generations
+            all_hypotheses.append(sen_hypotheses)
+            all_premises.append(sen_premises)
 
-        # split data to batches with size `batch_size`
+        # reshape data to batches with size `batch_size`
         all_hypotheses_flattened = [h for hypotheses in all_hypotheses for h in hypotheses]
         all_premises_flattened = [p for premises in all_premises for p in premises]
         hypothesis_batches = [all_hypotheses_flattened[i:i+batch_size] for i in range(0, len(all_hypotheses_flattened), batch_size)]
@@ -739,21 +749,23 @@ class Evaluator(nn.Module):
             if verbose:
                 pbar.update(1)
 
-        # split predictions for each summary
-        all_summaries_pred_nums = [len(hypotheses) for hypotheses in all_hypotheses]
-        predictions_for_all_summaries = [all_predictions[i:i+l] for i, l in zip(np.cumsum([0]+all_summaries_pred_nums)[:-1], all_summaries_pred_nums)]
+        # now, we have the results of citation mask prediction and citation prediction for all sentences (and claims) in all generations in a single list (`all_predictions`)
+        # next, we need to split the predictions for each sentence in each generation sample
 
-        for idx, predictions_for_summary in enumerate(predictions_for_all_summaries):
-            summary_parsing = all_summary_parsing[idx]
+        all_sample_pred_nums = [len(hypotheses) for hypotheses in all_hypotheses] 
+        predictions_for_all_samples = [all_predictions[i:i+l] for i, l in zip(np.cumsum([0]+all_sample_pred_nums)[:-1], all_sample_pred_nums)] # (num_sample, num_pairs)
+
+        for idx, predictions_for_sample in enumerate(predictions_for_all_samples):
+            text_parsing = all_text_parsing[idx]
             docs = all_docs[idx]
             num_docs = len(docs)
-            if summary_parsing == []:
+            if text_parsing == []:
                 continue
             # split predictions on claims for each sentence
             claim_num_for_sentences = all_claim_nums[idx]
-            assert len(claim_num_for_sentences) == len(summary_parsing) # number of sentences in the summary
+            assert len(claim_num_for_sentences) == len(text_parsing) # number of sentences in the generation
             all_sentences_pred_nums = [(1+num_docs)*claim_num for claim_num in claim_num_for_sentences]
-            predictions_for_sentences = [predictions_for_summary[i:i+l] for i, l in zip(np.cumsum([0]+all_sentences_pred_nums)[:-1], all_sentences_pred_nums)]
+            predictions_for_sentences = [predictions_for_sample[i:i+l] for i, l in zip(np.cumsum([0]+all_sentences_pred_nums)[:-1], all_sentences_pred_nums)]
             for i, preds_for_sen in enumerate(predictions_for_sentences):
                 num_claims = claim_num_for_sentences[i]
                 preds_for_claims = np.array(preds_for_sen).reshape(num_claims, 1+num_docs)
@@ -768,13 +780,13 @@ class Evaluator(nn.Module):
                     for k, doc in enumerate(docs):
                         claims_doc_relations[j].append(self.id2label[relation_preds[k]])
                         
-                claim2rels = {claim: rels for claim, rels in zip(summary_parsing[i]['claims'], claims_doc_relations)}
-                summary_parsing[i]['claim2rels'] = claim2rels
-                if 'citation_mask' not in summary_parsing[i].keys():
-                    if summary_parsing[i]['citations'] != []: # if citation set is not empty, citation_mask will be 1
-                        summary_parsing[i]['citation_mask'] = 1
+                claim2rels = {claim: rels for claim, rels in zip(text_parsing[i]['claims'], claims_doc_relations)}
+                text_parsing[i]['claim2rels'] = claim2rels
+                if 'citation_mask' not in text_parsing[i].keys():
+                    if text_parsing[i]['citations'] != []: # if citation set is not empty, citation_mask will be 1
+                        text_parsing[i]['citation_mask'] = 1
                     else:
-                        summary_parsing[i]['citation_mask'] = citation_mask_for_sen
+                        text_parsing[i]['citation_mask'] = citation_mask_for_sen
 
                 # identify the relation of each sentence with each doc, then determine citations and attribution
                 auto_citations = []
@@ -787,15 +799,15 @@ class Evaluator(nn.Module):
                     # otherwise, if the doc entails any claim, it should be cited
                     elif self.entail_label in rel2claims:
                         auto_citations.append(cite_idx)     
-                summary_parsing[i][citation_ref_key] = auto_citations
+                text_parsing[i][citation_ref_key] = auto_citations
 
-                if summary_parsing[i]['citation_mask']==0:
+                if text_parsing[i]['citation_mask']==0:
                     ais = 1 
                     acs = 1
                 else:
                     # determine the AIS score with the given citations
                     ais = 0
-                    cited_doc_indices = [citation-1 for citation in summary_parsing[i][citation_pred_key]] # citation index starts from 1
+                    cited_doc_indices = [citation-1 for citation in text_parsing[i][citation_pred_key]] # citation index starts from 1
                     # sentence is not attributable if it contradicts any cited doc
                     if self.contradict_label in [rel for d_i, rel in enumerate(list(claim2rels.values())[-1]) if d_i in cited_doc_indices]:
                         ais = 0
@@ -813,7 +825,7 @@ class Evaluator(nn.Module):
                             
                     # determine the ACS score with the evaluator-predicted citations
                     acs = 0
-                    evaluator_cited_doc_indices = [citation-1 for citation in summary_parsing[i][citation_ref_key]]
+                    evaluator_cited_doc_indices = [citation-1 for citation in text_parsing[i][citation_ref_key]]
                     if self.contradict_label in [rel for _i, rel in enumerate(list(claim2rels.values())[-1]) if _i in evaluator_cited_doc_indices]:
                         acs = 0
                     elif self.entail_label in [rel for _i, rel in enumerate(list(claim2rels.values())[-1]) if _i in evaluator_cited_doc_indices]:
@@ -827,27 +839,27 @@ class Evaluator(nn.Module):
                         if all_claims_entailed:
                             acs = 1
                 
-                summary_parsing[i]['ais'] = ais
-                summary_parsing[i]['acs'] = acs
+                text_parsing[i]['ais'] = ais
+                text_parsing[i]['acs'] = acs
 
-            all_summary_parsing[idx] = summary_parsing
+            all_text_parsing[idx] = text_parsing
 
         if squeeze:
-            all_summary_parsing = all_summary_parsing[0]
-        return all_summary_parsing
+            all_text_parsing = all_text_parsing[0]
+        return all_text_parsing
     
     def _compute_attribution_score(
         self, 
-        summary_parsing: List[Dict],
+        text_parsing: List[Dict],
         citation_pred_key: Optional[str] = 'nearest_citations',
         citation_ref_key: Optional[str] = 'auto_citations'
     ) -> Dict[str, float]:
         """
-        Compute the citation score for a summary given the predicted citations for each sentence.
+        Compute the citation score for a generation given the predicted citations for each sentence.
 
         """
         citation_p, citation_r, ais, acs = [], [], [], []
-        for idx, item in enumerate(summary_parsing):
+        for idx, item in enumerate(text_parsing):
             if item['citation_mask']==0:
                 continue
             citation_prediction = set(item[citation_pred_key]) 
@@ -869,7 +881,7 @@ class Evaluator(nn.Module):
             ais.append(item['ais'])
             acs.append(item['acs'])
 
-        # citation scores of the summary are the average of sentences
+        # citation scores of the generation are the average of sentences
         citation_p = np.mean(citation_p) if citation_p else 0.
         citation_r = np.mean(citation_r) if citation_r else 0.
         ais = np.mean(ais) if ais else 0.
@@ -884,10 +896,10 @@ class Evaluator(nn.Module):
 
     def evaluate_attribution(
         self, 
-        summary: Union[str, List[str]],
+        generation: Union[str, List[str]],
         docs: Union[List[str], List[List[str]]], 
         query: Optional[Union[str, List[str]]] = None,
-        predict_citation_mask = True,
+        predict_citation_mask: bool = True,
         citation_pred_key: Optional[str] = 'nearest_citations',
         citation_ref_key: Optional[str] = 'auto_citations',
         claimsplit: bool = True,
@@ -900,30 +912,28 @@ class Evaluator(nn.Module):
         verbose=False,
     ) -> Union[List, Dict]:
         """
-        Given the (a list of) summary and source docs, automatically predict the citations for each sentence in the summary and evaluate attribution.
+        Given the (a list of) generation and source docs, automatically predict the citations for each sentence in the generation and evaluate attribution.
 
         Support batch evaluation.
 
         The citation index starts from 1, so the index of the first doc is 1, the index of the second doc is 2, and so on.
         
         Args:
-            summary:
-                a single summary or a list of summaries to evaluate
+            generation:
+                a single generation or a list of generations to evaluate
             docs:
-                if `summary` is a single summary, `docs` should be a list of source docs;
-                elif `summary` is a list of summaries, `docs` should be a list of list of source docs. 
-            query: 
+                if `generation` is a single generation, `docs` should be a list of source docs;
+                elif `generation` is a list of generations, `docs` should be a list of list of source docs. 
+            query (*optional*): 
                 if provided, will add query into the premise prompt for citation_mask prediction, might improve accuracy by providing topic information;
-                if `summary` is a single summary, `query` should be a single string;
-                if `summary` is a list of summaries, `query` should be a list of strings.
+                if `generation` is a single generation, `query` should be a single string;
+                if `generation` is a list of generations, `query` should be a list of strings.
             predict_citation_mask:
-                whether to predict the citation_mask for each sentence using the nli_model, will be ignored if `citation_mask` is given in `summary_parsing`.
-                if set to `True` and 'citation_mask' is not given in `summmary_parsing`, will predict the citation_mask for each sentence: citation_mask is 1 if a sentence needs citation, else 0.
-                if set to `False` and 'citation_mask' is not given in `summmary_parsing`, will assign citation_mask=1 to all sentences, indicating that all sentences need citation.
+                whether to predict the citation_mask for each sentence using the nli_model, or simply assign citation_mask=1 to all sentences.
             citation_pred_key:
-                the key to store the given (model-generated) citations for each sentence in `summary_parsing`
+                the key to store the given (model-generated) citations for each sentence in `text_parsing`
             citation_ref_key:
-                the key to store the citations predicted by the evaluator for each sentence in `summary_parsing`
+                the key to store the citations predicted by the evaluator for each sentence in `text_parsing`
             claimsplit:
                 whether to split each sentence into a list of claims using the claimsplit model, will be set to `False` if `claimsplit_model` is not loaded
             claimsplit_max_source_length: 
@@ -944,22 +954,22 @@ class Evaluator(nn.Module):
         """
         # input check
         squeeze = False
-        if isinstance(summary, str):
-            summary = [summary]
+        if isinstance(generation, str):
+            generation = [generation]
             docs = [docs]
             if query is not None:
                 query = [query]
             squeeze = True
-        assert len(summary) == len(docs)
+        assert len(generation) == len(docs)
         if query is not None:
-            assert len(summary) == len(query)
+            assert len(generation) == len(query)
 
         if claimsplit and self.claimsplit_model is None:
             claimsplit = False
             logger.warning("claimsplit model is not loaded, will not split claims")
 
-        all_parsings = self._parse_summary(
-                        summary=summary,
+        all_parsings = self._parse_text(
+                        text=generation,
                         claimsplit=claimsplit,
                         max_source_length=claimsplit_max_source_length,
                         max_target_length=claimsplit_max_target_length,
@@ -967,7 +977,7 @@ class Evaluator(nn.Module):
                         verbose=verbose
                     )
         all_parsings = self._predict_citation(
-                        summary_parsing=all_parsings, 
+                        text_parsing=all_parsings, 
                         docs=docs,                                 
                         predict_citation_mask=predict_citation_mask,
                         citation_pred_key=citation_pred_key,
@@ -977,7 +987,7 @@ class Evaluator(nn.Module):
                         batch_size=nli_batch_size,
                         verbose=verbose
                     )
-        all_scores = [self._compute_attribution_score(summary_parsing, citation_pred_key, citation_ref_key) for summary_parsing in all_parsings]
+        all_scores = [self._compute_attribution_score(text_parsing, citation_pred_key, citation_ref_key) for text_parsing in all_parsings]
         metric_names = all_scores[0].keys()
         all_scores = {metric_name: [score[metric_name] for score in all_scores] for metric_name in metric_names}
 

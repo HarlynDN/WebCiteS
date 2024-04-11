@@ -69,8 +69,8 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_GPUs claimsplit/main.py \
 ```bash
 cd src
 python claimsplit/eval.py \
-    --pred_file {path/to/claimsplit/generation/file} \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --f {path/to/claimsplit/generation/file} \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
     --batch_size 256
 ```
 如果遇到OOM错误，尝试减小`batch_size`。
@@ -84,9 +84,9 @@ python claimsplit/eval.py \
 ```bash
 cd src
 python aqfs/eval_evaluator.py \
-    --test_file ../data/aqfs_snippet/test.json \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
-    --claimsplit_model_path {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
+    --f ../data/aqfs_snippet/test.json \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --claimsplit_model {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ``` 
@@ -186,9 +186,9 @@ torchrun --standalone --nnodes=1 --nproc-per-node=$NUM_GPUs aqfs/main.py \
 ```bash
 cd src
 python aqfs/eval.py \
-    --pred_file {path/to/model/outputs} \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
-    --claimsplit_model_path {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
+    --f {path/to/model/outputs} \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --claimsplit_model {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ```

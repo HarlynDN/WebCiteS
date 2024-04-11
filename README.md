@@ -68,8 +68,8 @@ We use an NLI model to evaluate the redundancy, correctness, and completeness of
 ```bash
 cd src
 python claimsplit/eval.py \
-    --pred_file {path/to/claimsplit/generation/file} \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --f {path/to/claimsplit/generation/file} \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
     --batch_size 256
 ```
 If you are hitting OOM, try to reduce `batch_size`.
@@ -79,9 +79,9 @@ We evaluate the performance of the evaluator consisting of a claim-split model a
 ```bash
 cd src
 python aqfs/eval_evaluator.py \
-    --test_file ../data/aqfs_snippet/test.json \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
-    --claimsplit_model_path {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
+    --f ../data/aqfs_snippet/test.json \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --claimsplit_model {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ``` 
@@ -172,9 +172,9 @@ We use the evaluator for automatic evaluation. Here is an example of evaluating 
 ```bash
 cd src
 python aqfs/eval.py \
-    --pred_file {path/to/model/outputs} \
-    --nli_model_path alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
-    --claimsplit_model_path {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
+    --f {path/to/model/outputs} \
+    --nli_model alan-turing-institute/mt5-large-finetuned-mnli-xtreme-xnli \
+    --claimsplit_model {path/to/the/fine-tuned/claimsplit/model/checkpoint} \
     --nli_batch_size 256 \
     --claimsplit_batch_size 512 
 ```

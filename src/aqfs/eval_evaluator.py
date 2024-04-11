@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 parser = ArgumentParser()
-parser.add_argument('--test_file', type=str, default='../data/aqfs_snippet/test.json',
+parser.add_argument('--f', type=str, default='../data/aqfs_snippet/test.json',
                     help='The test set of WebCiteS.')
 
-parser.add_argument('--nli_model_path', type=str, default=None,
+parser.add_argument('--nli_model', type=str, default=None,
                     help='The path to citation scorer model checkpoint.')
 
-parser.add_argument('--claimsplit_model_path', type=str, default=None,
+parser.add_argument('--claimsplit_model', type=str, default=None,
                     help='The path to claim-split model checkpoint.')
 
 parser.add_argument('--citation_mask', choices=['auto', 'default', 'human'], default='auto',
@@ -69,13 +69,13 @@ def run_evaluation_on_evaluator():
     logger.info(f'Arguments: {args}')
 
     # load test file
-    with open(args.test_file, 'r') as f:
+    with open(args.f, 'r') as f:
         samples = json.load(f)
 
     # load evaluator
     evaluator = Evaluator(
-        claimsplit_model_path=args.claimsplit_model_path,
-        nli_model_path=args.nli_model_path,
+        claimsplit_model_path=args.claimsplit_model,
+        nli_model_path=args.nli_model,
         device_map=args.device_map
     )      
 
@@ -86,8 +86,8 @@ def run_evaluation_on_evaluator():
     if all(['summary_parsing' in sample.keys() for sample in samples]):
         all_summary_parsing = [sample['summary_parsing'] for sample in samples]
     else:
-        all_summary_parsing = evaluator._parse_summary(
-                                summary=[sample['summary'] for sample in samples],
+        all_summary_parsing = evaluator._parse_text(
+                                text=[sample['summary'] for sample in samples],
                                 claimsplit = evaluator.claimsplit_model is not None,
                                 max_source_length=args.claimsplit_max_source_length,
                                 max_target_length=args.claimsplit_max_target_length,
@@ -104,7 +104,7 @@ def run_evaluation_on_evaluator():
 
     # compute attribution scores
     all_summary_parsing = evaluator._predict_citation(   
-                            summary_parsing=all_summary_parsing,
+                            text_parsing=all_summary_parsing,
                             docs=[sample['docs'] for sample in samples],
                             query=[sample['query'] for sample in samples],
                             predict_citation_mask= (args.citation_mask == 'auto'),
@@ -113,7 +113,7 @@ def run_evaluation_on_evaluator():
                             verbose=True
                         )
     all_attribution_scores = [evaluator._compute_attribution_score(
-                                summary_parsing=parsing, 
+                                text_parsing=parsing, 
                                 citation_pred_key='auto_citations',
                                 citation_ref_key='human_citations'
                             )
