@@ -2,6 +2,7 @@
 
 本项目提供了论文[WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://arxiv.org/abs/2403.01774)的代码实现。在这个工作中，我们形式化了AQFS任务并提出了WebCiteS数据集。WebCiteS来源于真实的用户查询和网络搜索数据，包含7k条人工参与标注的引证式摘要。我们针对摘要质量和结果的可归因性（attribution）进行了全面评估，同时还基于开源模型构建了一个高效的自动评估器。请参阅论文来获取更多细节。
 
+![](assets/img.png)
 
 ## 目录
 - [设置](#设置)
@@ -202,4 +203,17 @@ wget https://huggingface.co/datasets/HarlynDN/WebCiteS/resolve/main/gpt_outputs.
 tar -xvf gpt_outputs.tar
 echo "deleting tar file"
 rm gpt_outputs.tar
+```
+
+## 引用
+如果本工作对您有所帮助，请考虑引用我们的论文。
+```bibtex
+@misc{deng2024webcites,
+      title={WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations}, 
+      author={Haolin Deng and Chang Wang and Xin Li and Dezhang Yuan and Junlang Zhan and Tianhua Zhou and Jin Ma and Jun Gao and Ruifeng Xu},
+      year={2024},
+      eprint={2403.01774},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
 ```

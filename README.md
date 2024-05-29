@@ -3,6 +3,11 @@
 
 This repository contains the code associated with the paper [WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://arxiv.org/abs/2403.01774). In this work, we formulate the task of attributed query-focused summarization (AQFS) and present WebCiteS, a Chinese dataset featuring 7k human-annotated summaries with citations. WebCiteS derives from real-world user queries and web search results, offering a valuable resource for model training and evaluation. We adopt comprehensive evaluation metrics on summarization utility and attribution and develop an cost-effective automatic evaluator based on open-source models for scalable and robust evaluation. Please refer to the paper for more details.
 
+![](assets/img.png)
+
+## News
+- (2024.5) WebCiteS is accepted to ACL 2024 main conference. 🎉
+
 ## Contents
 - [Setup](#setup)
 - [Prepare the Evaluator](#prepare-the-evaluator)
@@ -14,7 +19,7 @@ Clone the repository and navigate to the root directory.
 git clone https://github.com/HarlynDN/WebCiteS.git
 cd WebCiteS
 ```
-### Intall the requirements
+### Install the requirements
 ```bash
 pip install -r requirements.txt
 ```
@@ -187,4 +192,17 @@ wget https://huggingface.co/datasets/HarlynDN/WebCiteS/resolve/main/gpt_outputs.
 tar -xvf gpt_outputs.tar
 echo "deleting tar file"
 rm gpt_outputs.tar
+```
+
+## Citation
+If you find this work helpful, please consider citing our paper.
+```bibtex
+@misc{deng2024webcites,
+      title={WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations}, 
+      author={Haolin Deng and Chang Wang and Xin Li and Dezhang Yuan and Junlang Zhan and Tianhua Zhou and Jin Ma and Jun Gao and Ruifeng Xu},
+      year={2024},
+      eprint={2403.01774},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
+}
 ```
