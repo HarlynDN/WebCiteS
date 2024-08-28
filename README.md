@@ -1,7 +1,7 @@
 # WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations
 [[中文版]](README_zh.md)
 
-This repository contains the code associated with the paper [WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://arxiv.org/abs/2403.01774). In this work, we formulate the task of attributed query-focused summarization (AQFS) and present WebCiteS, a Chinese dataset featuring 7k human-annotated summaries with citations. WebCiteS derives from real-world user queries and web search results, offering a valuable resource for model training and evaluation. We adopt comprehensive evaluation metrics on summarization utility and attribution and develop an cost-effective automatic evaluator based on open-source models for scalable and robust evaluation. Please refer to the paper for more details.
+This repository contains the code associated with the paper [WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations](https://aclanthology.org/2024.acl-long.806/). In this work, we formulate the task of attributed query-focused summarization (AQFS) and present WebCiteS, a Chinese dataset featuring 7k human-annotated summaries with citations. WebCiteS derives from real-world user queries and web search results, offering a valuable resource for model training and evaluation. We adopt comprehensive evaluation metrics on summarization utility and attribution and develop an cost-effective automatic evaluator based on open-source models for scalable and robust evaluation. Please refer to the paper for more details.
 
 ![](assets/img.png)
 
