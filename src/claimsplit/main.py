@@ -66,14 +66,18 @@ def main():
             with open(os.path.join(training_args.output_dir, "train_hparams.json"), 'w') as f:
                 json.dump(hparams, f, indent=2)
 
+
     # Inference
+    generation_kwargs = {
+        "max_new_tokens": data_args.max_target_length,
+    }
     if training_args.do_eval:
-        metrics = trainer.evaluate(eval_dataset, metric_key_prefix="eval")
+        metrics = trainer.evaluate(eval_dataset, metric_key_prefix="eval", **generation_kwargs)
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
     if training_args.do_predict:
-        predict_results = trainer.predict(predict_dataset, metric_key_prefix="predict")
+        predict_results = trainer.predict(predict_dataset, metric_key_prefix="predict", **generation_kwargs)
         metrics = predict_results.metrics
 
         # save results

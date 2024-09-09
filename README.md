@@ -6,10 +6,11 @@ This repository contains the code associated with the paper [WebCiteS: Attribute
 ![](assets/img.png)
 
 ## News
+- (2024.9) The fine-tuned claim-split model is uploaded to [huggingface](https://huggingface.co/HarlynDN/mt5-large-claimsplit).
 - (2024.5) WebCiteS is accepted to ACL 2024 main conference. 🎉
 
 ## Contents
-- [Setup](#setup)
+- [Setup](#setup)ˇ
 - [Prepare the Evaluator](#prepare-the-evaluator)
 - [Experiments on the AQFS task](#experiments-on-the-aqfs-task)
 
