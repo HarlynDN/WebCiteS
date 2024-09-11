@@ -198,12 +198,25 @@ rm gpt_outputs.tar
 ## Citation
 If you find this work helpful, please consider citing our paper.
 ```bibtex
-@misc{deng2024webcites,
-      title={WebCiteS: Attributed Query-Focused Summarization on Chinese Web Search Results with Citations}, 
-      author={Haolin Deng and Chang Wang and Xin Li and Dezhang Yuan and Junlang Zhan and Tianhua Zhou and Jin Ma and Jun Gao and Ruifeng Xu},
-      year={2024},
-      eprint={2403.01774},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
-}
+@inproceedings{deng-etal-2024-webcites,
+    title = "{W}eb{C}ite{S}: Attributed Query-Focused Summarization on {C}hinese Web Search Results with Citations",
+    author = "Deng, Haolin  and
+      Wang, Chang  and
+      Xin, Li  and
+      Yuan, Dezhang  and
+      Zhan, Junlang  and
+      Zhou, Tian  and
+      Ma, Jin  and
+      Gao, Jun  and
+      Xu, Ruifeng",
+    editor = "Ku, Lun-Wei  and
+      Martins, Andre  and
+      Srikumar, Vivek",
+    booktitle = "Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)",
+    month = aug,
+    year = "2024",
+    address = "Bangkok, Thailand",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2024.acl-long.806",
+    pages = "15095--15114"
 ```
